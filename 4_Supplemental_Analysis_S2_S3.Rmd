@@ -136,7 +136,7 @@ summary(beta)
 ```
 
 
-```{r, echo=FALSE,results='hide',fig.keep='all'}
+```{r, results='hide',fig.keep='all'}
 ### Stepwise BIC approach 
 stepwise_match_input <- lm(prop_unmatched ~ 
   (prop_backup + competitiveness + prop_ranked_program_elective + prop_matched_program_elective + mean_other_disciplines + 

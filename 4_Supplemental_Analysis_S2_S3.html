@@ -395,6 +395,20 @@ summary(beta)</code></pre>
 ## Log-likelihood: 449.4 on 13 Df
 ## Pseudo R-squared: 0.6749
 ## Number of iterations: 28 (BFGS) + 7 (Fisher scoring)</code></pre>
+<pre class="r"><code>### Stepwise BIC approach 
+stepwise_match_input &lt;- lm(prop_unmatched ~ 
+  (prop_backup + competitiveness + prop_ranked_program_elective + prop_matched_program_elective + mean_other_disciplines + 
+     prop_ranked_discipline_elective + prop_matched_discipline_elective + 
+     mean_electives_outside_discipline + mean_electives_within_discipline + prop_matched_3_discipline_elective)^2, data = match_input)
+
+stepwise_match_bic &lt;- stepAIC(stepwise_match_input, k = log(nrow(match_input)))
+
+
+# compare AICs 
+model &lt;- c(&quot;match_lm&quot;, &quot;match_lm_stepwise_BIC&quot;, &quot;match_beta&quot;)
+AIC &lt;- c(AIC(lin), AIC(stepwise_match_bic), AIC(beta))
+BIC &lt;- c(BIC(lin), BIC(stepwise_match_bic), BIC(beta))
+scores &lt;- data.frame(model, AIC, BIC); scores</code></pre>
 <pre class="r"><code>summary(stepwise_match_bic)</code></pre>
 <pre><code>## 
 ## Call:
