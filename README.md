@@ -1,37 +1,38 @@
-## Welcome to GitHub Pages
+## Fundamental Trends Within Falling Match Rates: Novel Insights from the Past Decade of Canadian Residency Matching Data
 
-You can use the [editor on GitHub](https://github.com/andygxzeng/carms/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
+### Abstract
+The number of unmatched Canadian Medical Graduates (CMGs) has risen dramatically over the last decade. To identify long-term solutions to this problem, it is critical that we understand the factors contributing to these rising unmatched rates. Using match and electives data from 2009-2019, we employed machine learning algorithms to identify three clusters of disciplines with distinct trends in match and electives behaviours. We assessed the relationships between unmatched rates, competitiveness, rates of parallel planning, and program selection practices at a discipline level. 
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+Across Canada, growth in CMGs has outpaced growth in residency seats, narrowing the seat-to-applicant ratio. Yet not all disciplines have been affected equally - a subset of surgical disciplines experienced a consistent decline in residency seats over time. Applicants to these disciplines are also at disproportionate risk of becoming unmatched, and this is associated with lower rates of parallel planning as quantified through clinical electives and match applications. This, in turn, is associated with the program selection practices of these disciplines. 
 
-### Markdown
+Long term solutions to the unmatched CMG crisis require more nuance than indiscriminately increasing residency seats and should consider cluster specific match ratios as well as regulations around clinical electives and program selection practices.
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
 
-```markdown
-Syntax highlighted code block
+## Description
 
-# Header 1
-## Header 2
-### Header 3
+This repository accompanies our paper on the Canadian Residency Match. It contains cleaned Canadian Residency Matching (CaRMS) data from 2009 to 2019. It also contains analysis code to reproduce all of the main and supplementary figures from the manuscript.
 
-- Bulleted
-- List
 
-1. Numbered
-2. List
+# Notebooks
 
-**Bold** and _Italic_ and `Code` text
+There are 4 notebooks containing the analysis code for the paper. The HTML versions can be viewed with the following links: 
 
-[Link](url) and ![Image](src)
-```
 
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
+**Notebook 1 - Clustering of Disciplines:**
 
-### Jekyll Themes
+[1 - Discipline Clustering](https://htmlpreview.github.io/?https://github.com/andygxzeng/carms_paper/blob/master/1_Clustering.html)
 
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/andygxzeng/carms/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
 
-### Support or Contact
+**Notebook 2 - Figures for Main Paper:**
 
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+[2 - Paper Figures](https://htmlpreview.github.io/?https://github.com/andygxzeng/carms_paper/blob/master/2_Paper_Figures.html)
+
+
+**Notebook 3 - Supplemental Analysis (Feature Selection):**
+
+[3 - Supplemental; Feature Selection](https://htmlpreview.github.io/?https://github.com/andygxzeng/carms_paper/blob/master/3_Supplemental_feature_selection.html)
+
+
+**Notebook 4 - Supplemental Analysis (Cluster Heatmap & Feature Interactions):**
+
+[4 - Supplemental; Figures S2 & S3](https://htmlpreview.github.io/?https://github.com/andygxzeng/carms_paper/blob/master/4_Supplemental_Analysis_S2_S3.html)
