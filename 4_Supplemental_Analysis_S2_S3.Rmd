@@ -52,10 +52,10 @@ electives_hc <- hclust(electives_dist, method = "complete")
 
 
 ```{r, fig.height=7, fig.width=10}
-# # matrix for heatmap
-# electives_mat <- tsne_data %>% 
-#   dplyr::select(-c(disc_code, discipline, discipline_full, TSNE1, TSNE2, electives_clusters)) %>% data.matrix
-# rownames(electives_mat) <- tsne_data$disc_code
+# matrix for heatmap
+electives_mat_with_unmatched <- tsne_data %>%
+  dplyr::select(-c(disc_code, discipline, discipline_full, TSNE1, TSNE2, electives_clusters)) %>% data.matrix
+rownames(electives_mat_with_unmatched) <- tsne_data$disc_code
 
 col_labels <- c("Prop Matched with \nDiscipline Elective", "Prop Matched with \nProgram Elective", 
                 "Prop Ranked with \nDiscipline Elective", "Prop Ranked with \nProgram Elective",
@@ -64,10 +64,11 @@ col_labels <- c("Prop Matched with \nDiscipline Elective", "Prop Matched with \n
                 "Competitiveness", "Frequency of\nParallel Applications", "Prop Applicants Unmatched")
 
 # Plot the heatmap
-electives_heatmap <- pheatmap(electives_mat, color = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(100), scale = "column",
-         angle_col = "45", cutree_rows = 3, cutree_cols = 4, fontsize = 12, fontsize_row = 10, fontsize_col = 9, fontsize_number = 10,
-         legend = TRUE, legend_breaks = c(-3,-2,-1,0,1,2,3,3), legend_labels = c("-3","-2","-1"," 0"," 1"," 2"," 3","Z-score\n\n\n"),
-         cluster_rows = electives_hc, labels_col = col_labels)
+electives_heatmap <- pheatmap(electives_mat_with_unmatched, color = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(100), 
+                              scale = "column", angle_col = "45", cutree_rows = 3, cutree_cols = 4, fontsize = 12, fontsize_row = 10, 
+                              fontsize_col = 9, fontsize_number = 10, legend = TRUE, legend_breaks = c(-3,-2,-1,0,1,2,3,3), 
+                              legend_labels = c("-3","-2","-1"," 0"," 1"," 2"," 3","Z-score\n\n\n"), 
+                              cluster_rows = electives_hc, labels_col = col_labels)
 ```
 
 
