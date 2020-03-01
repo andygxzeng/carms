@@ -35,4 +35,4 @@ There are 4 notebooks containing the analysis code for the paper. The HTML versi
 
 **Notebook 4 - Supplemental Analysis (Cluster Heatmap & Feature Interactions):**
 
-[4 - Supplemental; Figures S2 & S3](https://htmlpreview.github.io/?https://github.com/andygxzeng/carms_paper/blob/master/4_Supplemental_Analysis_S2_S3.html)
+[4 - Supplemental; Figures S1 & S3](https://htmlpreview.github.io/?https://github.com/andygxzeng/carms_paper/blob/master/4_Supplemental_Analysis_S1_S3.html)
