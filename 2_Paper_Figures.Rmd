@@ -1,0 +1,750 @@
+---
+title: "2 - Paper Figures"
+output:
+  html_document:
+    df_print: paged
+---
+Final Figures for CMEJ Paper.  
+
+# Setup
+
+## Library
+
+```{r}
+library(extrafont)
+
+## import fontawesome. If you have to redo, download ttf directly from emojifont package
+# font_import(paths="C:/Users/azeng/AppData/Local/Microsoft/Windows/Fonts/", pattern = "fontawesome-webfont")
+# font_import(paths="C:/Windows/Fonts/", pattern = "fontawesome-webfont")
+
+# check that Font Awesome is imported
+fonts()[grep("Awesome", fonts())]
+# [1] "FontAwesome"
+
+# use this if things look odd in RStudio under Windows
+loadfonts(device = "win")
+```
+
+Libraries
+```{r, warning=FALSE}
+library(ggpubr)
+library(ggbiplot)
+library(dendextend)
+library(Rtsne)
+library(ggthemes)
+library(tidyverse)
+library(waffle)
+library(RColorBrewer)
+library(factoextra)
+```
+
+
+## Data
+
+Load Electives with cluster assignments 
+```{r}
+carms <- read.csv("carms_cleaned.csv")
+electives <- read.csv("electives.csv", stringsAsFactors = FALSE)
+
+electives_clust <- tibble("A" = c("Microbio", "Gen Path", "Nuclear", "Pub Health","Neuro Path","Peds Neuro",
+                          "Heme Path", "Anat Path","Internal","Family", "Med Gen", NA),
+                  "B" = c("Psych", "Rad Onc", "OBGYN", "Peds", "Neuro", "Physiatry", "Anesth",
+                          "Rads", "Gen Surg", "Vasc Surg", "Derm", "Emerg"),
+                  "C" = c("Cardiac Surg", "Ophthal",  "Neuro Surg", "Urology",
+                          "Ortho", "ENT", "Plastics", NA, NA, NA, NA, NA)) %>%
+ gather(key = "cluster", value = "disc_code") %>% na.omit() %>%
+ right_join(.,electives, by="disc_code")
+
+
+# approximate simpsons diversity index for electives diversity metric
+  # inflate everything by ten to get clean integer
+get_simp <- function(dat){
+  num_other_disciplines <- 10*dat$mean_other_disciplines
+  simp <- (dat$mean_electives_within_discipline / (dat$mean_electives_within_discipline + dat$mean_electives_outside_discipline))^2
+  
+  for(i in 1:num_other_disciplines){
+    simp <- simp + ((dat$mean_electives_outside_discipline / dat$mean_other_disciplines) / (10*(dat$mean_electives_within_discipline + dat$mean_electives_outside_discipline)))^2
+  }
+  dat$electives_diversity <- 1 - simp
+  return(dat)
+}
+
+# get electives diversity
+electives_clust <- electives_clust %>% 
+  filter(year >= 2013) %>%
+  na.omit() %>%
+  mutate(discipline_year = paste0(disc_code, " (", year, ")")) %>%
+  split(.$discipline_year) %>% 
+  map_dfr(~ get_simp(.))
+
+electives_clust <- carms %>% 
+  mutate(disc_code = as.character(disc_code)) %>%
+  mutate(disc_code = if_else(disc_code == "Opthal", "Ophthal", disc_code)) %>%
+  mutate(p_nomatch_unmatch = unmatched / (matched_to_other + unmatched),
+         p_nomatch_other = 1 - p_nomatch_unmatch, 
+         app_as_first_choice = app_choice_1 / app_total)%>% 
+  select(year, disc_code, p_nomatch_unmatch, p_nomatch_other, app_as_first_choice, app_choice_1, seat_total, seat_vacant, matched_choice_1, matched_to_other, unmatched) %>% 
+  left_join(electives_clust, ., by = c("year", "disc_code"))
+
+
+electives_clust %>% head()
+
+```
+
+# Main Figures
+
+## Figure 1
+
+Ratios in first iteration and introduction to the clusters
+
+
+### Ratio plot for first iteration
+
+
+```{r, include=FALSE}
+ratio_palette <- c("#BDBDBD", "dodgerblue4", "firebrick4")
+
+discipline_trend <- carms
+
+# discipline_trend with cluster labels
+discipline_trend_clust <- electives_clust %>%
+  mutate(cluster = paste0("Cluster ", cluster)) %>%
+  dplyr::select(discipline_full, cluster) %>%
+  unique() %>% 
+  left_join(discipline_trend, ., by = c("discipline_full"))
+```
+
+
+```{r}
+app_seat_iter_1 <- discipline_trend_clust %>% 
+  group_by(year) %>% 
+  dplyr::summarise(`CMG Applicants` = sum(app_choice_1), 
+                   `Residency Seats` = sum(seat_total),
+                   `Unmatched` = sum(unmatched)) %>% 
+  ungroup() %>%
+  gather(key = "First", value = "Count", `CMG Applicants`, `Residency Seats`, `Unmatched`) %>%
+  dplyr::select(year, First, Count)
+
+app_seat_1 <- ggplot() +
+  geom_col(data = filter(app_seat_iter_1, First == "Residency Seats"), 
+           aes(x = year, y = Count, fill = " Residency Seats ")) +
+  geom_line(data = filter(app_seat_iter_1, First == "CMG Applicants"), 
+            aes(x = year, y = Count, color = " CMG Applicants     "), size = 2) +
+  geom_line(data = filter(app_seat_iter_1, First == "Unmatched"), 
+            aes(x = year, y = Count, color = " Unmatched"), size = 1.5) +
+  ylab("Count") + xlab("Year") +
+  scale_x_continuous(breaks=seq(2010, 2019,2)) +
+  scale_fill_manual(name = "", values = c(" Residency Seats " = ratio_palette[1])) +
+  scale_color_manual(name = "", values = c(" CMG Applicants     " = ratio_palette[2],
+                                           " Unmatched" = ratio_palette[3])) +
+  theme_pubr() +
+  theme(legend.title = element_blank(),
+        legend.position = "bottom") 
+
+
+first_iter <- data.frame("First Iteration Match - All Disciplines")
+
+ggarrange(ggtexttable(first_iter, rows=NULL, cols=NULL, 
+                      theme = ttheme("lBlack", padding = unit(c(100,5),"mm"), base_size = 14)),
+          app_seat_1 + ylab("Count") + theme(plot.margin = unit(c(1,0.5,1.5,0.5), "lines"), legend.position = 'none'), 
+          heights = c(0.3, 2.02), ncol = 1, nrow = 2)
+```
+
+## Load summarised discipline data (median from 2013-2019)
+
+```{r}
+cluster_palette <- c("#46B8DACC", "#EEA236BB", "#9632B8BB")
+tsne_data <- read_csv("tsne_electives.csv")
+
+tsne_data %>% head()
+```
+
+## Cluster Dendrogram
+
+```{r}
+electives_mat <- tsne_data %>% select(-c("discipline", "discipline_full", "disc_code", "prop_unmatched", "TSNE1", "TSNE2")) %>% data.matrix()
+rownames(electives_mat) <- tsne_data %>% pull(disc_code)
+
+# get dendrogram
+corelectives <- electives_mat %>% t() %>% cor()
+electives_dist <- as.dist((1-corelectives)/2)
+electives_hc <- hclust(electives_dist, method = "complete")
+
+dend = fviz_dend(rev(electives_hc), k=3, labels_track_height = 0.05, main = "", 
+                 ylab="Distance", k_colors=cluster_palette)
+dend
+```
+
+
+### Cluster TSNE plot
+
+
+```{r}
+tsne_plot <- tsne_data %>% 
+    mutate(Cluster = if_else(electives_clusters == 1, "B", if_else(electives_clusters == 2, "A", "C"))) %>%
+    ggplot(aes(TSNE1, TSNE2, color = Cluster)) +
+    geom_text(aes(label = disc_code), size = 3.2) + theme_pubr() +
+    theme(legend.position = "top", plot.margin = unit(c(1, 1,2,1), "lines"), 
+          axis.text = element_blank(), axis.ticks = element_blank(), 
+          legend.title=element_text(size=14), 
+          legend.text = element_text(size=12)) +
+    scale_color_manual(values = cluster_palette) +
+    guides(color = guide_legend(override.aes = list(size=5.4)))
+
+tsne_plot
+```
+
+### Ratio plot by cluster
+
+```{r}
+app_seat_disc_class <- discipline_trend_clust %>% 
+  group_by(year, cluster) %>% 
+  dplyr::summarise(`CMGs Ranking Discipline as First Choice` = sum(app_choice_1), 
+                   `Residency Seats` = sum(seat_total),
+                   `Unmatched Applicants` = sum(unmatched)) %>% 
+  ungroup() %>%
+  gather(key = "First", value = "Count", `CMGs Ranking Discipline as First Choice`, `Residency Seats`, `Unmatched Applicants`) %>%
+  dplyr::select(year, cluster, First, Count)
+```
+
+```{r, fig.width=14, fig.height=5}
+ratio_palette <- c("#BDBDBD", "dodgerblue4", "firebrick4")
+
+plot_ratio <- function(app_seat_disc_class, cluster_name, palette){
+  spots_clust <- ggplot() +
+    geom_col(data = filter(app_seat_disc_class, First == "Residency Seats") %>% filter(cluster == cluster_name),
+             aes(x = year, y = Count, fill = " Residency Seats   ")) +
+    geom_line(data = filter(app_seat_disc_class, First == "CMGs Ranking Discipline as First Choice") %>% filter(cluster == cluster_name),
+             aes(x = year, y = Count, color = " CMGs Ranking Discipline as First Choice    "), size = 1.8) +
+    geom_line(data = filter(app_seat_disc_class, First == "Unmatched Applicants") %>% filter(cluster == cluster_name), 
+             aes(x = year, y = Count, color = " Unmatched Applicants"), size = 1.8) +
+    scale_x_continuous(breaks=seq(2010, 2018,2)) +
+    scale_fill_manual(name = "", values = c(" Residency Seats   " = palette[1])) +
+    scale_color_manual(name = "", values = c(" CMGs Ranking Discipline as First Choice    " = palette[2],
+                                             " Unmatched Applicants" = palette[3])) +
+    theme_pubr() + theme(axis.title.y = element_blank(), axis.title.x = element_blank()) +
+    facet_wrap(~cluster, scales = "free_y")
+  
+  return(spots_clust)
+}
+
+# cluster A
+spots_clust_A <- plot_ratio(app_seat_disc_class, "Cluster A", ratio_palette)
+# cluster B
+spots_clust_B <- plot_ratio(app_seat_disc_class, "Cluster B", ratio_palette)
+# cluster C
+spots_clust_C <- plot_ratio(app_seat_disc_class, "Cluster C", ratio_palette)
+
+
+ggarrange(
+  spots_clust_A + theme(strip.text.x = element_text(size = 13), plot.margin = unit(c(1,0.5,0,0.5), "lines")), 
+  spots_clust_B + theme(strip.text.x = element_text(size = 13), plot.margin = unit(c(1,0.5,0,0.5), "lines")),
+  spots_clust_C + theme(strip.text.x = element_text(size = 13), plot.margin = unit(c(1,0.5,0,0.5), "lines")),
+  nrow = 1, ncol = 3, labels = c("C", "D", "E"), font.label = list(size = 22),
+  common.legend = TRUE, legend = "bottom"
+)
+```
+
+
+```{r, fig.width=14, fig.height=9}
+first_iter <- data.frame("First Iteration Match - All Disciplines")
+
+ggarrange(
+  ggarrange(dend, tsne_plot,
+          ncol = 2, nrow = 1, widths = c(1, 1.3), labels = c("A", "B"), font.label = list(size = 24)),
+  ggarrange(
+    spots_clust_A + theme(strip.text.x = element_text(size = 13), plot.margin = unit(c(1,0.5,0,0.5), "lines")), 
+    spots_clust_B + theme(strip.text.x = element_text(size = 13), plot.margin = unit(c(1,0.5,0,0.5), "lines")),
+    spots_clust_C + theme(strip.text.x = element_text(size = 13), plot.margin = unit(c(1,0.5,0,0.5), "lines")),
+    nrow = 1, ncol = 3, labels = c("C", "D", "E"), font.label = list(size = 22),
+    common.legend = TRUE, legend = "bottom"
+  ), nrow = 2, ncol = 1, heights = c(1.3,1)) + ggsave("paper_figures/Figure1_Clusters_and_ratios.png", height = 9, width = 14, dpi = 600)
+```
+
+
+
+
+###############################################################################################################################################
+
+## Figure 2
+
+Match Stats of disciplines (no electives) and match outcomes barplot 
+
+```{r}
+electives_clust <- electives_clust %>% filter(cluster != "NA")
+```
+
+```{r}
+cluster_labels <- c("A" = "Cluster A", "B" = "Cluster B", "C" = "Cluster C")
+
+outcomes <- electives_clust %>% 
+  filter(year >= 2013) %>% 
+  group_by(disc_code, cluster) %>% 
+  dplyr::summarise(app_choice_1 = sum(app_choice_1), 
+            matched_choice_1 = sum(matched_choice_1),
+            matched_to_other = sum(matched_to_other),
+            unmatched = sum(unmatched)) %>% 
+  mutate(prop_matched_to_discipline = matched_choice_1 / app_choice_1,
+         prop_matched_to_alternative = matched_to_other / app_choice_1,
+         prop_unmatched = unmatched / app_choice_1) %>% 
+  select(disc_code, cluster, contains("prop")) %>%
+  na.omit() %>%
+  ungroup()
+
+cbp_set <- c("#009E73", "#006299", "firebrick")
+
+outcome_bars <- outcomes %>%
+  mutate(disc_code = factor(disc_code, levels = arrange(., prop_unmatched)$disc_code)) %>%
+  gather(-disc_code,-cluster, key = "Outcome", value = "prop") %>% 
+  mutate(Outcome = factor(Outcome, 
+                          levels = c("prop_matched_to_discipline", "prop_matched_to_alternative", "prop_unmatched"))) %>%
+  ggplot(aes(x=disc_code, y=prop, fill = Outcome)) +
+  geom_col() + 
+  scale_fill_manual(labels = c("Matched to Discipline", "Matched to Alternative", "Unmatched"), values = cbp_set) + 
+  ylab("Proportion of CMGs Ranking Discipline as First Choice") + 
+  theme_pubr() + 
+  facet_grid(.~cluster, scales="free_x", space = "free_x", labeller = as_labeller(cluster_labels)) + 
+  theme(legend.position = "right", 
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1), 
+        strip.text.x = element_text(size = 14)) 
+
+outcome_bars
+```
+
+```{r}
+cluster_palette <- c("#46B8DACC", "#EEA236BB", "#9632B8BB")
+
+# Proportion unmatched in each cluster over time
+cluster_unmatch_time <- discipline_trend_clust %>% 
+  mutate(Cluster = str_replace(cluster, "Cluster ", "")) %>% 
+  filter(!is.na(Cluster),
+         Cluster != "NA") %>% 
+  group_by(year, Cluster) %>% 
+  dplyr::summarise(prop_unmatched = sum(unmatched) / sum(app_choice_1)) %>%
+  ggplot(aes(x = year, y = prop_unmatched, color = Cluster)) +
+  geom_line(size = 1.5) +
+  scale_color_manual(values = cluster_palette) +
+  geom_hline(yintercept = 0.25, linetype = 2, color = "grey") +
+  geom_hline(yintercept = 0.20, linetype = 2, color = "grey") +
+  geom_hline(yintercept = 0.15, linetype = 2, color = "grey") +
+  geom_hline(yintercept = 0.10, linetype = 2, color = "grey") +
+  geom_hline(yintercept = 0.05, linetype = 2, color = "grey") +
+  scale_x_continuous(breaks=seq(2010, 2018,1)) +
+  ylab("Proportion of Applicants Unmatched") +
+  xlab("Year") + 
+  theme_pubr() +
+  theme(legend.title=element_text(size=13), 
+          legend.text = element_text(size=12))# +
+  #guides(color = guide_legend(override.aes = list(size=2)))
+
+cluster_unmatch_time
+```
+
+
+```{r}
+electives_clust_avg <- electives_clust %>% filter(year >= 2013) %>%
+  group_by(cluster, disc_code) %>% 
+  select(competitiveness, prop_unmatched, cluster, disc_code) %>% na.omit() %>%
+  dplyr::summarise_all(., mean) %>% 
+  ungroup() 
+
+comp_unmatch_point <- electives_clust %>% 
+  filter(year >= 2013) %>% 
+  dplyr::rename("Cluster" = cluster) %>%
+  ggplot(aes(x = competitiveness, y = prop_unmatched)) + 
+  xlab("Competitiveness  (CMGs Ranking as Top Choice / Available Seats)") + ylab("Proportion of Applicants Unmatched") +
+  geom_point(aes(color = Cluster), size = 0.5, alpha=0.3) +
+  geom_text(data = electives_clust_avg, aes(label = disc_code, color = cluster), size = 3.5) +
+  geom_smooth(aes(color = Cluster), method = "lm", se = FALSE, size = 0.25, alpha = 0.2) +
+  stat_cor(size = 3.8, label.y.npc = 0.98) +
+  stat_cor(aes(color = Cluster), size = 3.55, label.y.npc = 0.93) +
+  scale_color_manual(values = cluster_palette) +
+  theme_pubr() +
+  theme(legend.title=element_text(size=13), 
+          legend.text = element_text(size=12))
+    
+
+comp_unmatch_point
+```
+
+```{r, fig.width = 14, fig.height=10}
+ggarrange(
+  ggarrange(cluster_unmatch_time + theme(plot.margin = unit(c(1,3,2,1), "lines")), 
+            comp_unmatch_point + theme(plot.margin = unit(c(1,1,2,1), "lines")), 
+            ncol = 2, nrow = 1, labels = c("A", "B"), font.label = list(size = 24)),
+  ggarrange(outcome_bars + theme(plot.margin = unit(c(1,0.5,1,2.5), "lines"), 
+                                 legend.text=element_text(size=14), 
+                                 legend.title = element_text(size=15)), 
+            labels = c("C"), font.label = list(size = 24)),
+  ncol = 1, nrow = 2) +
+  ggsave("paper_figures/Figure2_Outcomes.png", width = 18, height = 13, dpi = 600)
+```
+
+
+
+
+###############################################################################################################################################
+
+## Figure 3
+
+Case study / illustrative example of derm vs plastics to highlight how differences in parallel planning influence match rates in equally competitive disciplines
+
+```{r}
+
+waffle_plot <-  function(data, clust,  years, as_prop = TRUE, nglyphs = 100, nrow = 5, glyph = "user", size = 6, colouring = FALSE, discipline_codes = FALSE, label_name = FALSE) {
+  
+  # function to round while preserving the sum 
+  round_preserve_sum <- function(x) {
+    y <- floor(x)
+    indices <- tail(order(x-y), round(sum(x)) - sum(y))
+    y[indices] <- y[indices] + 1
+    y
+  }
+
+  if(discipline_codes == FALSE) {
+    # gather and sum
+    clust_sum <- data %>%
+    filter(year %in% years,
+           cluster == clust) %>%
+    dplyr::summarise(matched_choice_1 = mean(matched_choice_1),
+              matched_to_other = mean(matched_to_other),
+              unmatched = mean(unmatched),
+              prop_matched = matched_choice_1 / (matched_choice_1+matched_to_other+unmatched) * 100, 
+              prop_matched_to_other = matched_to_other / (matched_choice_1+matched_to_other+unmatched) * 100,
+              prop_unmatched = unmatched / (matched_choice_1+matched_to_other+unmatched) * 100) 
+  } else { 
+    # gather and sum
+    clust_sum <- data %>%
+    filter(year %in% years,
+           disc_code %in% discipline_codes) %>%
+    dplyr::summarise(matched_choice_1 = mean(matched_choice_1),
+              matched_to_other = mean(matched_to_other),
+              unmatched = mean(unmatched),
+              prop_matched = matched_choice_1 / (matched_choice_1+matched_to_other+unmatched) * 100, 
+              prop_matched_to_other = matched_to_other / (matched_choice_1+matched_to_other+unmatched) * 100,
+              prop_unmatched = unmatched / (matched_choice_1+matched_to_other+unmatched) * 100) 
+  }
+  
+  if(as_prop == TRUE){
+    waffle_percent <- c("Matched to Discipline" = clust_sum$prop_matched, 
+                    "Matched to Alternative" = clust_sum$prop_matched_to_other, 
+                    "Unmatched" =  clust_sum$prop_unmatched)
+    
+    waffle_input <- round_preserve_sum(waffle_percent * nglyphs/100)
+    
+    print(waffle_percent)
+    
+  } else { 
+    waffle_count <- c("Matched to Discipline" = clust_sum$matched_choice_1, 
+                    "Matched to Alternative" = clust_sum$matched_to_other, 
+                    "Unmatched" =  clust_sum$unmatched)
+    
+    waffle_input <- round_preserve_sum(waffle_count * nglyphs/100)
+    
+    print(waffle_count)
+  }
+  
+  # generate waffleplot
+  if(label_name != FALSE){
+    
+    if(is.logical(colouring)){
+        waffplot <- waffle(waffle_input, rows = nrow, title = label_name, use_glyph = glyph, glyph_size = size)  
+      } else {
+        waffplot <- waffle(waffle_input, rows = nrow, title = label_name, use_glyph = glyph, glyph_size = size, colors = colouring)  
+      }
+    
+  } else {
+  
+    if(discipline_codes == FALSE){
+      if(is.logical(colouring)){
+        waffplot <- waffle(waffle_input, rows = nrow, title = paste0("Cluster ", clust), use_glyph = glyph, glyph_size = size)  
+      } else {
+        waffplot <- waffle(waffle_input, rows = nrow, title = paste0("Cluster ", clust), use_glyph = glyph, glyph_size = size, colors = colouring)  
+      }
+    } else {
+      if(is.logical(colouring)){
+        waffplot <- waffle(waffle_input, rows = nrow, title = capture.output(cat(discipline_codes, sep = ", ")), use_glyph = glyph, glyph_size = size)  
+      } else {
+        waffplot <- waffle(waffle_input, rows = nrow, title = capture.output(cat(discipline_codes, sep = ", ")), use_glyph = glyph, glyph_size = size, colors = colouring)  
+      }
+    }
+    
+  }
+  
+  return(waffplot)
+}
+```
+
+
+
+```{r}
+years <- c(2013, 2013, 2015,2016,2017,2018,2019)
+
+DP_waffle <- ggarrange(
+  electives_clust %>%
+    waffle_plot(., clust = FALSE, discipline_codes = "Derm", years, nglyphs=10, nrow = 1, size = 30, 
+                glyph = c("user"), colouring = cbp_set, label_name = "Dermatology") + 
+    theme(legend.text=element_text(size=16.5)),
+  electives_clust %>%
+    waffle_plot(., clust = FALSE, discipline_codes = "Plastics", years, nglyphs=10, nrow = 1, size = 30,
+                glyph = c( "user"), colouring = cbp_set, label_name = "Plastic Surgery") +
+    theme(legend.text=element_text(size=16.5)),
+  nrow = 2, common.legend = TRUE, legend = "right"
+) 
+```
+
+
+
+```{r, fig.width = 14, fig.height=10.5}
+core_elective_labels <- c("mean_electives_within_discipline" = "Mean Electives Within Matched Discipline",
+                          "log_unmatched_vs_alt" = "Unmatched / Matched to Alternative",
+                          "electives_diversity" = "Diversity of Electives", 
+                          "prop_backup" = "Frequency of Parallel Applications", 
+                          "competitiveness" = "Competitiveness", 
+                          "prop_unmatched" = "Proportion Unmatched",
+                          "p_nomatch_other" = "Alternative Outcomes\n(Matched to Alternative vs Unmatched)")
+
+my_comparisons <- list( c("Dermatology", "Plastic Surgery") )
+
+structured_data_derm_plastics <- electives_clust %>%
+  na.omit() %>%
+  filter(year >= 2013,
+         disc_code %in% c("Derm", "Plastics")) %>%
+  mutate(Discipline = factor(disc_code, levels = c("Derm", "Plastics")),
+         disc_class = ifelse(Discipline %in% c("Derm"), "Dermatology", "Plastic Surgery")) %>%
+  select(year, Discipline, cluster, mean_electives_within_discipline,competitiveness, prop_unmatched,
+         prop_backup, electives_diversity, disc_class, p_nomatch_other) %>%
+  gather(key = "match_stat", value = "value", mean_electives_within_discipline, competitiveness, 
+         prop_unmatched, prop_backup, electives_diversity, p_nomatch_other)
+
+
+carms_boxplot_derm_plastics <- function(structured_data, metric){
+  structured_data %>% 
+    filter(match_stat == metric) %>%
+    ggplot(aes(y = value, x = disc_class, fill = Discipline)) +
+    geom_boxplot(outlier.color = 'grey', outlier.alpha = 0.8) + 
+    scale_fill_manual(values = c("#EEA236BB", "#9632B8BB")) +
+    facet_wrap(.~match_stat, scales = "free_y", labeller = as_labeller(core_elective_labels)) +
+    xlab("") + ylab("") +
+    stat_compare_means(comparisons = my_comparisons, size = 4, method = "t.test", label = "p.signif") +
+    theme_pubr() +
+    theme(legend.position = "none", 
+          strip.text.x = element_text(size = 14)) 
+}
+
+ggarrange(
+  ggarrange(DP_waffle + theme(plot.margin = unit(c(0,1,2,1.5), "lines")), 
+            labels = "A", font.label = list(size = 26)),
+  ggarrange(
+    carms_boxplot_derm_plastics(structured_data_derm_plastics, "competitiveness") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_derm_plastics(structured_data_derm_plastics, "prop_unmatched") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_derm_plastics(structured_data_derm_plastics, "p_nomatch_other") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    ncol = 3, nrow = 1, labels = c("B", "C", "D"), font.label = list(size = 26)),
+  ggarrange(
+    carms_boxplot_derm_plastics(structured_data_derm_plastics, "mean_electives_within_discipline") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_derm_plastics(structured_data_derm_plastics, "electives_diversity") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_derm_plastics(structured_data_derm_plastics, "prop_backup") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    ncol = 3, nrow = 1, labels = c("E", "F", "G"), font.label = list(size = 26)), 
+  ncol = 1, nrow = 3, heights = c(4,5.2,5)) +  
+  ggsave("paper_figures/Figure3_Derm_Plastics.png", width = 18, height = 13.5, dpi = 600)
+```
+
+
+
+###############################################################################################################################################
+
+## Figure 4
+
+Characterizing unmatched risk and parellel planning across clusters 
+
+```{r}
+core_elective_labels <- c("mean_electives_within_discipline" = "Mean Electives Within Matched Discipline",
+                          "electives_diversity" = "Diversity of Electives", 
+                          "prop_backup" = "Frequency of Parallel Applications", 
+                          "competitiveness" = "Competitiveness", 
+                          "prop_unmatched" = "Proportion Unmatched",
+                          "p_nomatch_other" = "Alternative Outcomes\n(Matched to Alternative vs Unmatched)")
+
+my_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
+
+
+structured_data_clusters <- electives_clust %>%
+  na.omit() %>%
+  filter(year >= 2013) %>%
+  select(year, cluster, mean_electives_within_discipline,competitiveness, prop_unmatched,
+         prop_backup, electives_diversity, p_nomatch_other) %>%
+  gather(key = "match_stat", value = "value", mean_electives_within_discipline, competitiveness, 
+         prop_unmatched, prop_backup, electives_diversity, p_nomatch_other)
+
+carms_boxplot_clusters <- function(structured_data, metric){
+  structured_data %>% 
+    filter(match_stat == metric) %>%
+    ggplot(aes(y = value, x = cluster, fill = cluster)) +
+    geom_boxplot(outlier.color = 'grey', outlier.alpha = 0.8) + 
+    scale_fill_manual(values = cluster_palette) +
+    facet_wrap(.~match_stat, scales = "free_y", labeller = as_labeller(core_elective_labels)) +
+    xlab("") + ylab("") +
+    stat_compare_means(comparisons = my_comparisons, size = 4, method = "t.test", label = "p.signif") +
+    theme_pubr() +
+    theme(legend.position = "none", 
+          strip.text.x = element_text(size = 13.5)) 
+}
+```
+
+```{r}
+electives_clust_5yr <- electives_clust %>% filter(year >= 2013, cluster != "A") %>% na.omit() 
+
+electives_clust_5yr_textsummary <- electives_clust_5yr %>%
+  group_by(disc_code, cluster) %>%
+  dplyr::summarise(competitiveness = mean(competitiveness),
+                   electives_diversity = mean(electives_diversity),
+                   prop_backup = mean(prop_backup),
+                   mean_electives_within_discipline = mean(mean_electives_within_discipline),
+                   p_nomatch_other = mean(p_nomatch_other))
+
+p2 <- electives_clust_5yr %>% 
+  na.omit() %>%
+  ggplot(aes(x = electives_diversity, y = p_nomatch_other)) +
+  xlab("Diversity of Electives") + ylab("Alternative Outcomes\n(Matched to Alternative vs Unmatched)") +
+  geom_smooth(color = "light grey", method = "lm", se = FALSE, alpha = 0.6, size = 0.3) +
+  geom_point(aes(color = cluster), shape = 16, alpha = 0.3, size = 0.7) +
+  geom_text(data = electives_clust_5yr_textsummary, aes(x = electives_diversity, y = p_nomatch_other, color = cluster, label = disc_code), size = 3.5) +
+  scale_color_manual(values = cluster_palette[2:3]) +
+  stat_cor(size = 4, label.y.npc = 0.975) +
+  theme_pubr()
+
+p3 <- electives_clust_5yr %>% 
+  na.omit() %>%
+  ggplot(aes(x = prop_backup, y = p_nomatch_other)) +
+  xlab("Frequency of Parallel Applications") + ylab("Alternative Outcomes\n(Matched to Alternative vs Unmatched)") +
+  geom_smooth(color = "light grey", method = "lm", se = FALSE, alpha = 0.6, size = 0.3) +
+  geom_point(aes(color = cluster), shape = 16, alpha = 0.3, size = 0.7) +
+  geom_text(data = electives_clust_5yr_textsummary, aes(x = prop_backup, y = p_nomatch_other, color = cluster, label = disc_code), size = 3.5) +
+  scale_color_manual(values = cluster_palette[2:3]) +
+  stat_cor(size = 4, label.y.npc = 0.975) +
+  theme_pubr()
+
+```
+
+
+```{r, fig.width = 14, fig.height=12}
+ggarrange(
+  ggarrange(
+    carms_boxplot_clusters(structured_data_clusters, "competitiveness") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_clusters(structured_data_clusters, "prop_unmatched") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_clusters(structured_data_clusters, "p_nomatch_other") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    ncol = 3, nrow = 1, labels = c("A", "B", "C"), font.label = list(size = 26)),
+  ggarrange(
+    carms_boxplot_clusters(structured_data_clusters, "mean_electives_within_discipline") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_clusters(structured_data_clusters, "electives_diversity") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    carms_boxplot_clusters(structured_data_clusters, "prop_backup") + theme(plot.margin = unit(c(1,1,0,1), "lines")),
+    ncol = 3, nrow = 1, labels = c("D", "E", "F"), font.label = list(size = 26)), 
+  ggarrange(
+    p2 + theme(plot.margin = unit(c(1,4,0.5,2), "lines")),
+    p3 + theme(plot.margin = unit(c(1,4,0.5,2), "lines")),
+    common.legend = TRUE, legend = "none", nrow = 1, ncol = 2, labels = c("G", "H"), font.label = list(size = 26), widths = c(1,1)),
+  ncol = 1, nrow = 3, heights = c(5, 5, 6.4)) +
+  ggsave("paper_figures/Figure4_Cluster_Parallel.png", width = 18, height = 15.5, dpi = 600)
+
+```
+
+
+
+# Figure 5
+Looking at program selection behaviours with regards to on-site electives
+
+
+```{r}
+core_elective_labels <- c("prop_ranked_program_elective" = "Proportion Ranked with Program Elective",
+                          "prop_matched_program_elective" = "Proportion Matched with Program Elective")
+
+structured_data_program <- electives_clust %>%
+  na.omit() %>%
+  filter(year >= 2013) %>%
+  select(year, cluster, prop_ranked_program_elective, prop_matched_program_elective) %>%
+  gather(key = "match_stat", value = "value", prop_ranked_program_elective, prop_matched_program_elective) %>%
+  mutate(match_stat = factor(match_stat, levels = c("prop_ranked_program_elective", "prop_matched_program_elective")))
+
+
+### Correlation Plots
+electives_clust_5yr <- electives_clust %>% filter(year >= 2013) %>% na.omit() 
+
+electives_clust_5yr_textsummary <- electives_clust_5yr %>%
+  group_by(disc_code, cluster) %>%
+  dplyr::summarise(competitiveness = mean(competitiveness),
+                   electives_diversity = mean(electives_diversity),
+                   prop_backup = mean(prop_backup),
+                   prop_ranked_program_elective = mean(prop_ranked_program_elective),
+                   prop_matched_program_elective = mean(prop_matched_program_elective),
+                   mean_electives_within_discipline = mean(mean_electives_within_discipline),
+                   p_nomatch_other = mean(p_nomatch_other))
+
+ranked_electives <- electives_clust_5yr %>% 
+  na.omit() %>%
+  ggplot(aes(x = prop_ranked_program_elective, y = mean_electives_within_discipline)) +
+  xlab("Proportion Ranked with Program Elective") + ylab("Mean Electives within Discipline") +
+  geom_smooth(color = "light grey", method = "lm", se = FALSE, alpha = 0.6, size = 0.3) +
+  geom_point(aes(color = cluster), shape = 16, alpha = 0.3, size = 0.7) +
+  geom_text(data = electives_clust_5yr_textsummary, aes(x = prop_ranked_program_elective, y = mean_electives_within_discipline, 
+                                                        color = cluster, label = disc_code), size = 3.2) +
+  scale_color_manual(values = cluster_palette[1:3]) +
+  stat_cor(size = 4, label.y.npc = 0.975) +
+  theme_pubr()
+
+matched_electives <- electives_clust_5yr %>% 
+  na.omit() %>%
+  ggplot(aes(x = prop_matched_program_elective, y = mean_electives_within_discipline)) +
+  xlab("Proportion Matched with Program Elective") + ylab("Mean Electives within Discipline") +
+  geom_smooth(color = "light grey", method = "lm", se = FALSE, alpha = 0.6, size = 0.3) +
+  geom_point(aes(color = cluster), shape = 16, alpha = 0.3, size = 0.7) +
+  geom_text(data = electives_clust_5yr_textsummary, aes(x = prop_matched_program_elective, y = mean_electives_within_discipline, 
+                                                        color = cluster, label = disc_code), size = 3.2) +
+  scale_color_manual(values = cluster_palette[1:3]) +
+  stat_cor(size = 4, label.y.npc = 0.975) +
+  theme_pubr()
+
+ranked_diversity <- electives_clust_5yr %>% 
+  na.omit() %>%
+  ggplot(aes(x = prop_ranked_program_elective, y = electives_diversity)) +
+  xlab("Proportion Ranked with Program Elective") + ylab("Diversity of Electives") +
+  geom_smooth(color = "light grey", method = "lm", se = FALSE, alpha = 0.6, size = 0.3) +
+  geom_point(aes(color = cluster), shape = 16, alpha = 0.3, size = 0.7) +
+  geom_text(data = electives_clust_5yr_textsummary, aes(x = prop_ranked_program_elective, y = electives_diversity, color = cluster, label = disc_code), size = 3.2) +
+  scale_color_manual(values = cluster_palette[1:3]) +
+  stat_cor(size = 4, label.y.npc = 0.975) +
+  theme_pubr()
+
+matched_diversity <- electives_clust_5yr %>% 
+  na.omit() %>%
+  ggplot(aes(x = prop_matched_program_elective, y = electives_diversity)) +
+  xlab("Proportion Matched with Program Elective") + ylab("Diversity of Electives") +
+  geom_smooth(color = "light grey", method = "lm", se = FALSE, alpha = 0.6, size = 0.3) +
+  geom_point(aes(color = cluster), shape = 16, alpha = 0.3, size = 0.7) +
+  geom_text(data = electives_clust_5yr_textsummary, aes(x = prop_matched_program_elective, y = electives_diversity, color = cluster, label = disc_code), size = 3.2) +
+  scale_color_manual(values = cluster_palette[1:3]) +
+  stat_cor(size = 4, label.y.npc = 0.975) + ylim(0.55, 1.05) +
+  theme_pubr()
+```
+
+```{r, fig.width = 14, fig.height=8}
+ggarrange(
+  ggarrange(
+    carms_boxplot_clusters(structured_data_program, "prop_ranked_program_elective") + 
+              theme(plot.margin = unit(c(1, 1.5, 1, 0.5), "lines")), 
+    carms_boxplot_clusters(structured_data_program, "prop_matched_program_elective") + 
+              theme(plot.margin = unit(c(0.5, 1.5, 1, 0.5), "lines")), 
+    labels = c("A", "B"), font.label = list(size = 24), nrow = 2, ncol = 1),
+  ggarrange(
+    ggarrange(ranked_electives + theme(plot.margin = unit(c(1,1,1,1), "lines")), 
+              ranked_diversity + theme(plot.margin = unit(c(1,1,1,1), "lines")), 
+              ncol = 2, widths = c(1,1), labels = c("C", "E"), font.label = list(size = 24), common.legend = TRUE, legend = "none"),
+    ggarrange(matched_electives + theme(plot.margin = unit(c(1,1,1,1), "lines")), 
+              matched_diversity + theme(plot.margin = unit(c(1,1,1,1), "lines")), 
+              ncol = 2, widths = c(1,1), labels = c("D", "F"), font.label = list(size = 24), common.legend = TRUE, legend = "none"),
+    nrow = 2, ncol = 1, heights = c(1,1)),
+  nrow = 1, ncol = 2, widths = c(1,2.4)) + 
+  ggsave("paper_figures/Figure_5_ranked_electives.png", width = 16, height = 9, dpi = 600)
+
+```
+
