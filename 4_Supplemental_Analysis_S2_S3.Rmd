@@ -68,42 +68,10 @@ electives_heatmap <- pheatmap(electives_mat_with_unmatched, color = colorRampPal
                               scale = "column", angle_col = "45", cutree_rows = 3, cutree_cols = 4, fontsize = 12, fontsize_row = 10, 
                               fontsize_col = 9, fontsize_number = 10, legend = TRUE, legend_breaks = c(-3,-2,-1,0,1,2,3,3), 
                               legend_labels = c("-3","-2","-1"," 0"," 1"," 2"," 3","Z-score\n\n\n"), 
-                              cluster_rows = electives_hc, labels_col = col_labels)
-```
+                              cluster_rows = electives_hc, labels_col = col_labels, silent = TRUE) 
 
-
-
-```{r, fig.height=4, fig.width=9}
-program_elective_labels <- c("prop_ranked_program_elective" = "Prop Ranked w/ Program Elective",
-                          "prop_matched_program_elective" = "Prop Matched w/ Program Elective")
-my_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
-
-cluster_program <- electives_clust %>%
-  na.omit() %>%
-  filter(year >= 2013) %>%
-  dplyr::select(year, cluster, prop_ranked_program_elective, prop_matched_program_elective) %>%
-  gather(key = "match_stat", value = "value", prop_ranked_program_elective, prop_matched_program_elective) %>%
-  mutate(match_stat = factor(match_stat, levels = c("prop_ranked_program_elective", "prop_matched_program_elective"))) %>%
-  ggplot(aes(y = value, x = cluster, fill = cluster)) +
-  geom_boxplot(outlier.color = 'grey', outlier.alpha = 0.8) + 
-  scale_fill_manual(values = cluster_palette) +
-  facet_wrap(.~match_stat, scales = "free_y", labeller = as_labeller(program_elective_labels)) +
-  xlab("") + ylab("") +
-  stat_compare_means(comparisons = my_comparisons, size = 4, method = "t.test", label = "p.signif") +
-  theme_pubr() +
-  theme(legend.position = "none",
-        strip.text.x = element_text(size = 16))
-
-cluster_program
-```
-
-```{r, fig.height=12, fig.width=12}
-ggarrange(
-  as.grob(electives_heatmap), 
-  cluster_program + theme_pubr(),
-  ncol = 1, nrow = 2, 
-  heights = c(1.6,1), labels = "AUTO", font.label = list(size = 22)) +
-  ggsave("paper_figures/Figure_S2_cluster_features.png", width = 14, height = 14, dpi = "retina")
+ggarrange(as.grob(electives_heatmap)) + 
+  ggsave("paper_figures/Figure_S2_cluster_heatmap.png", width = 12, height = 8, dpi = "retina")
 ```
 
 
