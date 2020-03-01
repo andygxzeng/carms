@@ -1,0 +1,141 @@
+---
+title: "2 - CaRMS Clustering"
+output: html_notebook
+---
+Load in the recently updated CaRMS data
+
+```{r, messages = FALSE}
+library(tidyverse)
+library(dendextend)
+library(ggbiplot)
+library(Rtsne)
+
+carms <- read_csv("carms_cleaned.csv")
+carms
+```
+
+
+
+```{r}
+electives <- carms %>% 
+  mutate(prop_unmatched = unmatched / app_choice_1,
+         prop_backup = (app_choice_1 - app_only) / app_choice_1, 
+         competitiveness = app_choice_1 / seat_total, 
+         prop_matched_discipline_elective = matched_discipline_elective / match_total,
+         prop_matched_program_elective = matched_program_elective / match_total, 
+         prop_ranked_discipline_elective = ranked_discipline_elective / ranked_total, 
+         prop_ranked_program_elective = ranked_program_elective / ranked_total, 
+         discipline_vs_other_electives = mean_electives_within_discipline / mean_electives_outside_discipline, 
+         prop_matched_3_discipline_elective = discipline_electives_3 / match_total) %>%
+  select(year, discipline, discipline_full, disc_code, prop_unmatched, prop_backup, competitiveness,
+         prop_matched_discipline_elective, prop_matched_program_elective, prop_ranked_discipline_elective, prop_ranked_program_elective, 
+         mean_electives_within_discipline, mean_electives_outside_discipline, discipline_vs_other_electives, mean_other_disciplines,
+         prop_matched_3_discipline_elective)
+
+electives
+```
+
+# Clustering Functions
+
+```{r}
+# Function to summarise electives
+summarise_electives <- function(electives, yr = 2013) {
+  
+  electives <- electives %>% select(-discipline_vs_other_electives)
+
+  vars_to_summarise = c("prop_matched_discipline_elective", "prop_matched_program_elective", "prop_ranked_discipline_elective", "prop_ranked_program_elective",
+                          "mean_electives_within_discipline", "mean_electives_outside_discipline", "mean_other_disciplines",
+                          "prop_matched_3_discipline_elective", "competitiveness", "prop_backup", "prop_unmatched")
+  
+  electives <- electives %>% filter(year >= yr) %>% group_by(discipline, discipline_full, disc_code) %>% 
+        summarise_at(., funs(median(., na.rm = TRUE)), .vars = vars_to_summarise) %>% ungroup()
+  
+  electives_pca_input <- electives %>% na.omit()
+  return(electives_pca_input)
+}
+
+# function to do pca from input dataframe and columns to remove
+do_pca <- function(input_df) {
+  remove_pca <- c("disc_code", "discipline", "discipline_full")
+  
+  # prepare matrix for PCA 
+  input_mat <- input_df %>% select(-one_of(remove_pca)) %>% data.matrix() %>% scale
+  # get pca
+  output_pca <- input_mat %>% prcomp(center = FALSE, scale. = FALSE)
+  
+  return(output_pca)
+}
+
+# Function to apply tsne 
+do_tsne <- function(elective_pca_input, perp = 5){
+  remove_pca <- c("disc_code", "discipline", "discipline_full")
+  
+  elective_all_mat <- elective_pca_input %>% dplyr::select(-one_of(remove_pca)) %>% data.matrix() %>% t() %>% cor()
+
+  elective_all_tsne <- Rtsne(elective_all_mat, perplexity = perp, pca_scale = FALSE)$Y %>% as.data.frame() %>% dplyr::rename("TSNE1" = "V1", "TSNE2" = "V2")
+  elective_all_tsne <- elective_pca_input %>% cbind(elective_all_tsne)
+  
+  return(elective_all_tsne)
+}
+
+# function to do clustering
+do_clustering <- function(electives, k = 3){
+  remove_pca <- c("disc_code", "discipline", "discipline_full")
+
+  corelectives <- electives %>% select(-one_of(remove_pca)) %>% na.omit() %>% data.matrix() %>% t() %>% cor()
+  electives_dist <- as.dist((1-corelectives)/2)
+  electives_hc <- hclust(electives_dist, method = "complete")
+  electives_dend <- as.dendrogram(electives_hc)
+  electives_dend <- color_branches(electives_dend, k = k)
+  graphics::plot(electives_dend)
+  
+  # clusters
+  cut_electives <- cutree(electives_hc, k = k)
+  return(cut_electives)
+}
+
+# Function to cluster and visualize
+cluster_and_visualize <- function(electives_pca_input, k = 3, perp = 5){
+  ## pca and clustering
+  electives_pca <- electives_pca_input %>% na.omit() %>% do_pca()
+  electives_clusters <- electives_pca_input %>% do_clustering(., k = k)
+  
+  # electives pca with clusters 
+  print(electives_pca %>% ggbiplot(groups = as.character(electives_clusters), var.axes = FALSE, obs.scale = 1) + 
+          geom_text(aes(label = electives_pca_input$disc_code, color = as.character(electives_clusters)), size = 3) + ggtitle("PCA Clusters"))
+  
+  # do tsne
+  electives_tsne <- electives_pca_input %>% do_tsne(., perp = perp) %>% cbind(electives_clusters)
+  
+  # plot tsne with cluster labels
+  print(electives_tsne %>% ggplot(aes(TSNE1, TSNE2, color = as.character(electives_clusters))) + 
+          geom_text(aes(label = disc_code), size = 3) + ggtitle("TSNE Clusters"))
+
+  return(electives_tsne)
+}
+```
+
+
+```{r}
+library(factoextra)
+set.seed(321)
+
+remove_pca <- c("disc_code", "discipline", "discipline_full")
+
+electives %>% 
+  summarise_electives(., yr = 2013) %>% 
+  select(-one_of(remove_pca)) %>% 
+  na.omit() %>% data.matrix() %>% 
+  fviz_nbclust(., kmeans, method='wss')
+
+```
+
+The 'elbow' is at three
+
+
+```{r}
+tsne_electives <- electives %>% summarise_electives(., yr = 2013) %>% 
+  cluster_and_visualize(., k = 3, perp = 8.5)
+```
+
+
