@@ -1,0 +1,220 @@
+---
+title: "4 - Supplemental Analysis - Figures S2 and S3"
+output:
+  html_document:
+    df_print: paged
+---
+
+Supplemental analysis that did not make it into the primary figures. 
+
+```{r}
+library(MASS)
+library(tidyverse)
+library(readr)
+library(pheatmap)
+library(ggpubr)
+library(ggplotify)
+library(betareg)
+library(RColorBrewer)
+library(statmod)
+```
+
+```{r}
+electives <- read.csv("electives.csv", stringsAsFactors = FALSE)
+
+electives_clust <- tibble("A" = c("Microbio", "Gen Path", "Nuclear", "Pub Health","Neuro Path","Peds Neuro",
+                          "Heme Path", "Anat Path","Internal","Family", "Med Gen", NA),
+                  "B" = c("Psych", "Rad Onc", "OBGYN", "Peds", "Neuro", "Physiatry", "Anesth",
+                          "Rads", "Gen Surg", "Vasc Surg", "Derm", "Emerg"),
+                  "C" = c("Cardiac Surg", "Ophthal",  "Neuro Surg", "Urology",
+                          "Ortho", "ENT", "Plastics", NA, NA, NA, NA, NA)) %>%
+ gather(key = "cluster", value = "disc_code") %>% na.omit() %>%
+ right_join(.,electives, by="disc_code")
+```
+
+
+### Figure S2 - Cluster Features
+
+```{r, fig.height=7, fig.width=10}
+cluster_palette <- c("#46B8DACC", "#EEA236BB", "#9632B8BB")
+tsne_data <- read_csv("tsne_electives.csv")
+
+electives_mat <- tsne_data %>% 
+  dplyr::select(-c("discipline", "discipline_full", "disc_code", "prop_unmatched", "TSNE1", "TSNE2")) %>% data.matrix()
+rownames(electives_mat) <- tsne_data %>% pull(disc_code)
+
+# get dendrogram
+corelectives <- electives_mat %>% t() %>% cor()
+electives_dist <- as.dist((1-corelectives)/2)
+electives_hc <- hclust(electives_dist, method = "complete")
+
+```
+
+
+```{r, fig.height=7, fig.width=10}
+# # matrix for heatmap
+# electives_mat <- tsne_data %>% 
+#   dplyr::select(-c(disc_code, discipline, discipline_full, TSNE1, TSNE2, electives_clusters)) %>% data.matrix
+# rownames(electives_mat) <- tsne_data$disc_code
+
+col_labels <- c("Prop Matched with \nDiscipline Elective", "Prop Matched with \nProgram Elective", 
+                "Prop Ranked with \nDiscipline Elective", "Prop Ranked with \nProgram Elective",
+                "Mean Electives within\nMatched Discipline", "Mean Electives outside\nMatched Discipline",
+                "Mean Other Disciplines with\n Completed Electives", "Prop Matched with >=3\n Discipline Electives",
+                "Competitiveness", "Frequency of\nParallel Applications", "Prop Applicants Unmatched")
+
+# Plot the heatmap
+electives_heatmap <- pheatmap(electives_mat, color = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(100), scale = "column",
+         angle_col = "45", cutree_rows = 3, cutree_cols = 4, fontsize = 12, fontsize_row = 10, fontsize_col = 9, fontsize_number = 10,
+         legend = TRUE, legend_breaks = c(-3,-2,-1,0,1,2,3,3), legend_labels = c("-3","-2","-1"," 0"," 1"," 2"," 3","Z-score\n\n\n"),
+         cluster_rows = electives_hc, labels_col = col_labels)
+```
+
+
+
+```{r, fig.height=4, fig.width=9}
+program_elective_labels <- c("prop_ranked_program_elective" = "Prop Ranked w/ Program Elective",
+                          "prop_matched_program_elective" = "Prop Matched w/ Program Elective")
+my_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
+
+cluster_program <- electives_clust %>%
+  na.omit() %>%
+  filter(year >= 2013) %>%
+  dplyr::select(year, cluster, prop_ranked_program_elective, prop_matched_program_elective) %>%
+  gather(key = "match_stat", value = "value", prop_ranked_program_elective, prop_matched_program_elective) %>%
+  mutate(match_stat = factor(match_stat, levels = c("prop_ranked_program_elective", "prop_matched_program_elective"))) %>%
+  ggplot(aes(y = value, x = cluster, fill = cluster)) +
+  geom_boxplot(outlier.color = 'grey', outlier.alpha = 0.8) + 
+  scale_fill_manual(values = cluster_palette) +
+  facet_wrap(.~match_stat, scales = "free_y", labeller = as_labeller(program_elective_labels)) +
+  xlab("") + ylab("") +
+  stat_compare_means(comparisons = my_comparisons, size = 4, method = "t.test", label = "p.signif") +
+  theme_pubr() +
+  theme(legend.position = "none",
+        strip.text.x = element_text(size = 16))
+
+cluster_program
+```
+
+```{r, fig.height=12, fig.width=12}
+ggarrange(
+  as.grob(electives_heatmap), 
+  cluster_program + theme_pubr(),
+  ncol = 1, nrow = 2, 
+  heights = c(1.6,1), labels = "AUTO", font.label = list(size = 22)) +
+  ggsave("paper_figures/Figure_S2_cluster_features.png", width = 14, height = 14, dpi = "retina")
+```
+
+
+
+## Multivariate Regression 
+
+Running multiple linear regression and beta regression to see which terms are still significant.
+Also running stepwise BIC with all terms and all interactors to look for significant interactions influencing unmatched rates
+
+```{r}
+electives <- read_csv("electives.csv")
+
+# match input from electives data
+match_input <- electives %>% 
+  dplyr::select(-c(year, discipline, discipline_full, disc_code)) %>% 
+  na.omit()
+
+```
+
+```{r}
+lin <- lm(prop_unmatched ~ ., data=match_input)
+
+summary(lin)
+```
+
+```{r}
+beta_input <- match_input %>% mutate(prop_unmatched = (prop_unmatched*(dim(match_input)[1] - 1) + 0.5) / dim(match_input)[1])
+beta <- betareg(prop_unmatched ~ ., data = beta_input)
+
+summary(beta)
+```
+
+
+```{r, echo=FALSE,results='hide',fig.keep='all'}
+### Stepwise BIC approach 
+stepwise_match_input <- lm(prop_unmatched ~ 
+  (prop_backup + competitiveness + prop_ranked_program_elective + prop_matched_program_elective + mean_other_disciplines + 
+     prop_ranked_discipline_elective + prop_matched_discipline_elective + 
+     mean_electives_outside_discipline + mean_electives_within_discipline + prop_matched_3_discipline_elective)^2, data = match_input)
+
+stepwise_match_bic <- stepAIC(stepwise_match_input, k = log(nrow(match_input)))
+
+
+# compare AICs 
+model <- c("match_lm", "match_lm_stepwise_BIC", "match_beta")
+AIC <- c(AIC(lin), AIC(stepwise_match_bic), AIC(beta))
+BIC <- c(BIC(lin), BIC(stepwise_match_bic), BIC(beta))
+scores <- data.frame(model, AIC, BIC); scores
+```
+
+```{r}
+summary(stepwise_match_bic)
+```
+
+After running stepwise multiple regression the significant interactor terms are: 
+  competitiveness : mean_electives_within_discipline
+  competitiveness : prop_backup
+We will visualize these interactions in figure S3
+
+
+## Figure S3
+
+Interaction plots of: 
+    - Electives within Discipline vs Unmatched    [ interactor: Competitiveness ]
+    - Frequency of Parallel Applications vs Unmatched          [ interactor: Competitiveness ]
+   
+
+```{r, fig.height=5, fig.width=14}
+
+electives_clust_since2013 <- electives_clust %>% filter(year >= 2013) %>% na.omit()
+
+comp_quantiles <- electives_clust_since2013 %>%
+  pull(competitiveness) %>% 
+  quantile(., probs = c(0.33, 0.66), na.rm = TRUE)
+
+# electives over competitiveness levels
+p1 <- electives_clust_since2013 %>%
+  mutate(Competitiveness = if_else(competitiveness < comp_quantiles[[1]], "Low", 
+                                 if_else(competitiveness < comp_quantiles[[2]], "Med", "High"))) %>%
+  mutate(Competitiveness = factor(Competitiveness, levels = c("High", "Med", "Low"))) %>% 
+  na.omit() %>%
+  ggplot(aes(x = mean_electives_within_discipline, y = prop_unmatched)) +
+  xlab("# of Electives in Matched Discipline") + ylab("Proportion of Applicants Unmatched") +
+  geom_point(aes(color = Competitiveness), size = 1.2) +
+  geom_smooth(aes(color = Competitiveness), method = "lm", se = FALSE) +
+  scale_color_brewer(type = "qual", palette = 6, name = "Competitiveness") +
+  stat_cor(size = 3.2, label.y.npc = 0.975) +
+  stat_cor(aes(color = Competitiveness), size = 3, label.y.npc = 0.925) +
+  theme_pubr()
+
+
+# backup over competitiveness levels
+p2 <- electives_clust_since2013 %>%
+  mutate(Competitiveness = if_else(competitiveness < comp_quantiles[[1]], "Low", 
+                                 if_else(competitiveness < comp_quantiles[[2]], "Med", "High"))) %>%
+  mutate(Competitiveness = factor(Competitiveness, levels = c("High", "Med", "Low"))) %>% 
+  na.omit() %>%
+  ggplot(aes(x = prop_backup, y = prop_unmatched)) +
+  xlab("Frequency of Parallel Applications") + ylab("Proportion of Applicants Unmatched") +
+  geom_point(aes(color = Competitiveness), size = 1.2) +
+  geom_smooth(aes(color = Competitiveness), method = "lm", se = FALSE) +
+  scale_color_brewer(type = "qual", palette = 6, name = "Competitiveness") +
+  stat_cor(size = 3.2, label.y.npc = 0.975) +
+  stat_cor(aes(color = Competitiveness), size = 3, label.y.npc = 0.925) +
+  theme_pubr()
+
+
+ggarrange(
+  p1, p2, nrow = 1, ncol = 2, 
+  labels = c("A", "B"), font.label = list(size = 22)) +
+  ggsave("paper_figures/Figure_S3_interaction_plots.png", width = 16, height = 5, dpi = "retina")
+
+```
+
+
